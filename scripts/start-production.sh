@@ -25,6 +25,19 @@ if ! grep -q "^AIRFLOW_FERNET_KEY=.\+" .env 2>/dev/null; then
 fi
 
 export AIRFLOW_UID="${AIRFLOW_UID:-$(id -u)}"
+DOCKER_GID="$(getent group docker | cut -d: -f3 || true)"
+if [[ -n "${DOCKER_GID}" ]]; then
+  if grep -q "^DOCKER_GID=" .env; then
+    sed -i "s|^DOCKER_GID=.*|DOCKER_GID=${DOCKER_GID}|" .env
+  else
+    echo "DOCKER_GID=${DOCKER_GID}" >> .env
+  fi
+fi
+if grep -q "^AIRFLOW_UID=" .env; then
+  sed -i "s|^AIRFLOW_UID=.*|AIRFLOW_UID=${AIRFLOW_UID}|" .env
+else
+  echo "AIRFLOW_UID=${AIRFLOW_UID}" >> .env
+fi
 
 echo "==> Building pipeline execution image"
 docker compose build pipeline-image

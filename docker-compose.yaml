@@ -17,6 +17,8 @@ x-airflow-common: &airflow-common
     - .env
   environment: &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    # Airflow 3: scheduler must reach apiserver by service name, not localhost.
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-apiserver:8080/execution/
     AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
     AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-}
@@ -42,6 +44,8 @@ x-airflow-common: &airflow-common
     - airflow-logs:/opt/airflow/logs
     - /var/run/docker.sock:/var/run/docker.sock
   user: "${AIRFLOW_UID:-50000}:0"
+  group_add:
+    - ${DOCKER_GID:-999}
   depends_on:
     postgres:
       condition: service_healthy
@@ -74,8 +78,11 @@ services:
       mlflow server
       --host 0.0.0.0
       --port 5000
+      --allowed-hosts "mlflow:5000,localhost:*,127.0.0.1:*"
       --backend-store-uri postgresql://mlflow:mlflow@postgres:5432/mlflow
       --default-artifact-root /mlflow/artifacts
+    environment:
+      MLFLOW_SERVER_ALLOWED_HOSTS: "mlflow:5000,localhost:*,127.0.0.1:*"
     ports:
       - "${MLFLOW_PORT:-5000}:5000"
     volumes:
@@ -98,6 +105,7 @@ services:
     command:
       - -c
       - |
+        set -e
         airflow db migrate
         airflow users create \
           --username "${AIRFLOW_USERNAME:-admin}" \
@@ -126,6 +134,13 @@ services:
   airflow-scheduler:
     <<: *airflow-common
     command: scheduler
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+      airflow-apiserver:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
       interval: 30s
@@ -136,6 +151,13 @@ services:
   airflow-dag-processor:
     <<: *airflow-common
     command: dag-processor
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+      airflow-apiserver:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", 'airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"']
       interval: 30s
@@ -146,6 +168,13 @@ services:
   airflow-triggerer:
     <<: *airflow-common
     command: triggerer
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+      airflow-apiserver:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", 'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"']
       interval: 30s
