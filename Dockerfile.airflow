@@ -5,9 +5,12 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends docker.io \
  && rm -rf /var/lib/apt/lists/* \
  && usermod -aG docker airflow || true
+
 USER airflow
 
+ARG AIRFLOW_VERSION=3.2.2
 COPY requirements-airflow.txt /requirements-airflow.txt
-RUN pip install --no-cache-dir -r /requirements-airflow.txt
+# Re-install Airflow alongside extras so pip does not break the base image.
+RUN pip install --no-cache-dir "apache-airflow==${AIRFLOW_VERSION}" -r /requirements-airflow.txt
 
 ENV PYTHONPATH="/opt/airflow/project:${PYTHONPATH}"
